@@ -558,10 +558,9 @@ class TLRUCache(_TimedCache):
             cache_setitem(self, key, value)
         # removing an existing item would break the heap structure, so
         # only mark it as removed for now
-        try:
-            self.__getitem(key).removed = True
-        except KeyError:
-            pass
+        # No need to mark as removed if the key doesn't exist
+        if key in self.__items:
+            self.__items[key].removed = True
         self.__items[key] = item = TLRUCache._Item(key, expires)
         heapq.heappush(self.__order, item)
 
@@ -691,7 +690,8 @@ def cached(cache, key=keys.hashkey, lock=None, info=False):
                     try:
                         cache[k] = v
                     except ValueError:
-                        pass  # value too large
+                        # Value too large for cache, just return without caching
+                        pass
                     return v
 
                 def cache_clear():
@@ -739,16 +739,15 @@ def cached(cache, key=keys.hashkey, lock=None, info=False):
                     return func(*args, **kwargs)
 
                 def cache_clear():
+                    # No cache to clear when cache is None
                     pass
 
             elif lock is None:
 
                 def wrapper(*args, **kwargs):
                     k = key(*args, **kwargs)
-                    try:
+                    if k in cache:
                         return cache[k]
-                    except KeyError:
-                        pass  # key not found
                     v = func(*args, **kwargs)
                     try:
                         cache[k] = v
@@ -767,14 +766,12 @@ def cached(cache, key=keys.hashkey, lock=None, info=False):
                         with lock:
                             return cache[k]
                     except KeyError:
-                        pass  # key not found
-                    v = func(*args, **kwargs)
-                    # in case of a race, prefer the item already in the cache
-                    try:
-                        with lock:
-                            return cache.setdefault(k, v)
-                    except ValueError:
-                        return v  # value too large
+                        v = func(*args, **kwargs)
+                        try:
+                            with lock:
+                                return cache.setdefault(k, v)
+                        except ValueError:
+                            return v  # value too large
 
                 def cache_clear():
                     with lock:
@@ -807,10 +804,8 @@ def cachedmethod(cache, key=keys.methodkey, lock=None):
                 if c is None:
                     return method(self, *args, **kwargs)
                 k = key(self, *args, **kwargs)
-                try:
+                if k in c:
                     return c[k]
-                except KeyError:
-                    pass  # key not found
                 v = method(self, *args, **kwargs)
                 try:
                     c[k] = v
@@ -834,14 +829,12 @@ def cachedmethod(cache, key=keys.methodkey, lock=None):
                     with lock(self):
                         return c[k]
                 except KeyError:
-                    pass  # key not found
-                v = method(self, *args, **kwargs)
-                # in case of a race, prefer the item already in the cache
-                try:
-                    with lock(self):
-                        return c.setdefault(k, v)
-                except ValueError:
-                    return v  # value too large
+                    v = method(self, *args, **kwargs)
+                    try:
+                        with lock(self):
+                            return c.setdefault(k, v)
+                    except ValueError:
+                        return v  # value too large
 
             def clear(self):
                 c = cache(self)
